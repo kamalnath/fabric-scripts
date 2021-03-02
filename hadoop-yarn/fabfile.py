@@ -20,7 +20,7 @@ from fabric.tasks import execute
 #### Generic ####
 SSH_USER = "ubuntu"
 # If you need to specify a special ssh key, do it here (e.g EC2 key)
-#env.key_filename = "~/.ssh/giraph.pem"
+env.key_filename = "~/.ssh/bdata1.pem"
 
 
 #### EC2 ####
@@ -42,10 +42,10 @@ EC2_INSTANCE_STORAGEDEV = None
 
 
 #### Package Information ####
-HADOOP_VERSION = "2.4.0"
+HADOOP_VERSION = "2.8.5"
 HADOOP_PACKAGE = "hadoop-%s" % HADOOP_VERSION
 #HADOOP_PACKAGE_URL = "http://apache.mirrors.spacedump.net/hadoop/common/stable/%s.tar.gz" % HADOOP_PACKAGE
-HADOOP_PACKAGE_URL = "http://www.whoishostingthis.com/mirrors/apache/hadoop/common/%(hadoop)s/%(hadoop)s.tar.gz" % {'hadoop': HADOOP_PACKAGE}
+HADOOP_PACKAGE_URL = "https://archive.apache.org/dist/hadoop/common/%(hadoop)s/%(hadoop)s.tar.gz" % {'hadoop': HADOOP_PACKAGE}
 HADOOP_PREFIX = "/home/ubuntu/Programs/%s" % HADOOP_PACKAGE
 HADOOP_CONF = os.path.join(HADOOP_PREFIX, "etc/hadoop")
 
@@ -61,7 +61,7 @@ PACKAGE_MANAGER_INSTALL = "apt-get -qq install %s" # Debian/Ubuntu
 # In principle, should just be a JRE for Hadoop, Python
 # for the Hadoop Configuration replacement script and wget
 # to get the Hadoop package
-REQUIREMENTS = ["wget", "python", "openjdk-7-jre-headless"] # Debian/Ubuntu
+REQUIREMENTS = ["wget", "python", "openjdk-8-jdk"] # Debian/Ubuntu
 #REQUIREMENTS = ["wget", "python", "jre7-openjdk-headless"] # Arch Linux
 #REQUIREMENTS = ["wget", "python", "java-1.7.0-openjdk-devel"] # CentOS
 
@@ -72,12 +72,12 @@ REQUIREMENTS_PRE_COMMANDS = []
 # If you want to install Oracle's Java instead of using the OpenJDK that
 # comes preinstalled with most distributions replace the previous options
 # with a variation of the following: (UBUNTU only)
-#REQUIREMENTS = ["wget", "python", "oracle-java7-installer"] # Debian/Ubuntu
+#REQUIREMENTS = ["wget", "python", "oracle-java8-installer"] # Debian/Ubuntu
 #REQUIREMENTS_PRE_COMMANDS = [
-    #"add-apt-repository ppa:webupd8team/java -y",
-    #"apt-get -qq update",
-    #"echo debconf shared/accepted-oracle-license-v1-1 select true | debconf-set-selections",
-    #"echo debconf shared/accepted-oracle-license-v1-1 seen true | debconf-set-selections",
+#    "add-apt-repository ppa:webupd8team/java",
+#    "apt-get -qq update",
+#    "echo debconf shared/accepted-oracle-license-v1-1 select true | debconf-set-selections",
+#    "echo debconf shared/accepted-oracle-license-v1-1 seen true | debconf-set-selections"
 #]
 
 
@@ -85,10 +85,10 @@ REQUIREMENTS_PRE_COMMANDS = []
 # Set this to True/False depending on whether or not ENVIRONMENT_FILE
 # points to an environment file that is automatically loaded in a new
 # shell session
-ENVIRONMENT_FILE_NOTAUTOLOADED = False
-ENVIRONMENT_FILE = "/home/ubuntu/.bashrc"
-#ENVIRONMENT_FILE_NOTAUTOLOADED = True
-#ENVIRONMENT_FILE = "/home/ubuntu/hadoop2_env.sh"
+#ENVIRONMENT_FILE_NOTAUTOLOADED = False
+#ENVIRONMENT_FILE = "/home/ubuntu/.bashrc"
+ENVIRONMENT_FILE_NOTAUTOLOADED = True
+ENVIRONMENT_FILE = "/home/ubuntu/hadoop2_env.sh"
 
 # Should the ENVIRONMENT_VARIABLES be applies to a clean (empty) environment
 # file or should they simply be merged (only additions and updates) into the
@@ -96,12 +96,12 @@ ENVIRONMENT_FILE = "/home/ubuntu/.bashrc"
 # will be backed up.
 ENVIRONMENT_FILE_CLEAN = False
 ENVIRONMENT_VARIABLES = [
-    ("JAVA_HOME", "/usr/lib/jvm/java-7-openjdk-amd64"), # Debian/Ubuntu 64 bits
+    ("JAVA_HOME", "/usr/lib/jvm/java-1.8.0-openjdk-amd64"), # Debian/Ubuntu 64 bits
     #("JAVA_HOME", "/usr/lib/jvm/java-7-openjdk"), # Arch Linux
     #("JAVA_HOME", "/usr/java/jdk1.7.0_51"), # CentOS
     ("HADOOP_PREFIX", HADOOP_PREFIX),
-    ("HADOOP_HOME", r"\\$HADOOP_PREFIX"),
-    ("HADOOP_COMMON_HOME", r"\\$HADOOP_PREFIX"),
+    ("HADOOP_HOME", HADOOP_PREFIX),
+    ("HADOOP_COMMON_HOME", HADOOP_PREFIX),
     ("HADOOP_CONF_DIR", r"\\$HADOOP_PREFIX/etc/hadoop"),
     ("HADOOP_HDFS_HOME", r"\\$HADOOP_PREFIX"),
     ("HADOOP_MAPRED_HOME", r"\\$HADOOP_PREFIX"),
@@ -114,15 +114,13 @@ ENVIRONMENT_VARIABLES = [
 
 #### Host data (for non-EC2 deployments) ####
 HOSTS_FILE="/etc/hosts"
-NET_INTERFACE="eth0"
-RESOURCEMANAGER_HOST = "resourcemanager.alexjf.net"
+NET_INTERFACE="ens5"
+RESOURCEMANAGER_HOST = "10.200.2.154"
 NAMENODE_HOST = RESOURCEMANAGER_HOST
 
-SLAVE_HOSTS = ["slave%d.alexjf.net" % i for i in range(1, 6)]
+#SLAVE_HOSTS = ["slave%d.alexjf.net" % i for i in range(1, 6)]
 # Or equivalently
-#SLAVE_HOSTS = ["slave1.alexjf.net", "slave2.alexjf.net",
-#          "slave3.alexjf.net", "slave4.alexjf.net",
-#          "slave5.alexjf.net"]
+SLAVE_HOSTS = ["10.200.2.175", "10.200.2.107"]
 
 # If you'll be running map reduce jobs, you should choose a host to be
 # the job tracker
@@ -164,6 +162,9 @@ def updateHadoopSiteValues():
         "dfs.datanode.data.dir": "file://%s" % HDFS_DATA_DIR,
         "dfs.namenode.name.dir": "file://%s" % HDFS_NAME_DIR,
         "dfs.permissions": "false",
+        "dfs.namenode.datanode.registration.ip-hostname-check":"false",
+	 "dfs.client.use.datanode.hostname": "false",
+	 "dfs.datanode.use.datanode.hostname": "false"
     }
 
     YARN_SITE_VALUES = {
@@ -325,7 +326,7 @@ def environmentRevertPrevious():
 
 def formatHdfs():
     if env.host == NAMENODE_HOST:
-        operationInHadoopEnvironment(r"\\$HADOOP_PREFIX/bin/hdfs namenode -format")
+        operationInHadoopEnvironment(r"/home/ubuntu/Programs/hadoop-2.8.5/bin/hdfs namenode -format")
 
 
 @runs_once
@@ -351,21 +352,24 @@ def stop():
 
 def test():
     if env.host == RESOURCEMANAGER_HOST:
-        operationInHadoopEnvironment(r"\\$HADOOP_PREFIX/bin/hadoop jar \\$HADOOP_PREFIX/share/hadoop/yarn/hadoop-yarn-applications-distributedshell-%(version)s.jar org.apache.hadoop.yarn.applications.distributedshell.Client --jar \\$HADOOP_PREFIX/share/hadoop/yarn/hadoop-yarn-applications-distributedshell-%(version)s.jar --shell_command date --num_containers %(numContainers)d --master_memory 1024" %
+        operationInHadoopEnvironment(r"/home/ubuntu/Programs/hadoop-2.8.5/bin/hadoop jar /home/ubuntu/Programs/hadoop-2.8.5/share/hadoop/yarn/hadoop-yarn-applications-distributedshell-%(version)s.jar org.apache.hadoop.yarn.applications.distributedshell.Client --jar /home/ubuntu/Programs/hadoop-2.8.5/share/hadoop/yarn/hadoop-yarn-applications-distributedshell-%(version)s.jar --shell_command date --num_containers %(numContainers)d --master_memory 1024" %
             {"version": HADOOP_VERSION, "numContainers": len(SLAVE_HOSTS)})
 
 
 def testMapReduce():
     if env.host == RESOURCEMANAGER_HOST:
-        operationInHadoopEnvironment(r"\\$HADOOP_PREFIX/bin/hadoop dfs -rm -f -r out")
-        operationInHadoopEnvironment(r"\\$HADOOP_PREFIX/bin/hadoop jar \\$HADOOP_PREFIX/share/hadoop/mapreduce/hadoop-mapreduce-examples-%s.jar randomwriter out" % HADOOP_VERSION)
+        operationInHadoopEnvironment(r"/home/ubuntu/Programs/hadoop-2.8.5/bin/hadoop dfs -rm -f -r out")
+        operationInHadoopEnvironment(r"/home/ubuntu/Programs/hadoop-2.8.5/bin/hadoop jar /home/ubuntu/Programs/hadoop-2.8.5/share/hadoop/mapreduce/hadoop-mapreduce-examples-%s.jar randomwriter out" % HADOOP_VERSION)
 
 
 # HELPER FUNCTIONS
 def ensureDirectoryExists(directory):
     with settings(warn_only=True):
+        sudo ("addgroup hadoop")
+        sudo ("adduser --ingroup hadoop --disabled-password --gecos '' hadoop")
         if run("test -d %s" % directory).failed:
-            run("mkdir -p %s" % directory)
+            sudo("mkdir -p %s" % directory)
+            sudo("chown -R hadoop %s" % directory )
 
 
 @parallel
@@ -466,6 +470,7 @@ def revertHadoopPropertiesChange(fileName):
 def operationInHadoopEnvironment(operation):
     with cd(HADOOP_PREFIX):
         command = operation
+        print (HADOOP_PREFIX)
         if ENVIRONMENT_FILE_NOTAUTOLOADED:
             with settings(warn_only=True):
                 import hashlib
@@ -478,29 +483,30 @@ def operationInHadoopEnvironment(operation):
                     put("executeInHadoopEnv.sh", HADOOP_PREFIX + "/")
                     run("chmod +x executeInHadoopEnv.sh")
             command = ("./executeInHadoopEnv.sh %s " % ENVIRONMENT_FILE) + command
-        run(command)
+            print (command)
+        sudo(command,user ='hadoop')
 
 
 def operationOnHadoopDaemons(operation):
     # Start/Stop NameNode
     if (env.host == NAMENODE_HOST):
-        operationInHadoopEnvironment(r"\\$HADOOP_PREFIX/sbin/hadoop-daemon.sh %s namenode" % operation)
+        operationInHadoopEnvironment(r"/home/ubuntu/Programs/hadoop-2.8.5/sbin/hadoop-daemon.sh %s namenode" % operation)
 
     # Start/Stop DataNode on all slave hosts
     if env.host in SLAVE_HOSTS:
-        operationInHadoopEnvironment(r"\\$HADOOP_PREFIX/sbin/hadoop-daemon.sh %s datanode" % operation)
+        operationInHadoopEnvironment(r"/home/ubuntu/Programs/hadoop-2.8.5/sbin/hadoop-daemon.sh %s datanode" % operation)
 
     # Start/Stop ResourceManager
     if (env.host == RESOURCEMANAGER_HOST):
-        operationInHadoopEnvironment(r"\\$HADOOP_PREFIX/sbin/yarn-daemon.sh %s resourcemanager" % operation)
+        operationInHadoopEnvironment(r"/home/ubuntu/Programs/hadoop-2.8.5/sbin/yarn-daemon.sh %s resourcemanager" % operation)
 
     # Start/Stop NodeManager on all container hosts
     if env.host in SLAVE_HOSTS:
-        operationInHadoopEnvironment(r"\\$HADOOP_PREFIX/sbin/yarn-daemon.sh %s nodemanager" % operation)
+        operationInHadoopEnvironment(r"/home/ubuntu/Programs/hadoop-2.8.5/sbin/yarn-daemon.sh %s nodemanager" % operation)
 
     # Start/Stop JobHistory daemon
     if (env.host == JOBHISTORY_HOST):
-        operationInHadoopEnvironment(r"\\$HADOOP_PREFIX/sbin/mr-jobhistory-daemon.sh %s historyserver" % operation)
+        operationInHadoopEnvironment(r"/home/ubuntu/Programs/hadoop-2.8.5/sbin/mr-jobhistory-daemon.sh %s historyserver" % operation)
     run("jps")
 
 
