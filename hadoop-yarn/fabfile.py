@@ -140,9 +140,9 @@ JOBHISTORY_PORT = 10020
 # will be backed up.
 CONFIGURATION_FILES_CLEAN = False
 
-HADOOP_TEMP = "/mnt/hadoop/tmp"
-HDFS_DATA_DIR = "/mnt/hdfs/datanode"
-HDFS_NAME_DIR = "/mnt/hdfs/namenode"
+HADOOP_TEMP = "/HA/data/tmp"
+HDFS_DATA_DIR = "/HA/data/datanode"
+HDFS_NAME_DIR = "/HA/data/namenode"
 
 IMPORTANT_DIRS = [HADOOP_TEMP, HDFS_DATA_DIR, HDFS_NAME_DIR]
 
@@ -365,11 +365,12 @@ def testMapReduce():
 # HELPER FUNCTIONS
 def ensureDirectoryExists(directory):
     with settings(warn_only=True):
-        sudo ("addgroup hadoop")
-        sudo ("adduser --ingroup hadoop --disabled-password --gecos '' hadoop")
+        #sudo ("addgroup hadoop")
+        #sudo ("adduser --ingroup hadoop --disabled-password --gecos '' hadoop")
         if run("test -d %s" % directory).failed:
             sudo("mkdir -p %s" % directory)
-            sudo("chown -R hadoop %s" % directory )
+            sudo("chown -R ubuntu %s" % directory )
+            run("chmod 755 %s" % directory)
 
 
 @parallel
@@ -484,7 +485,8 @@ def operationInHadoopEnvironment(operation):
                     run("chmod +x executeInHadoopEnv.sh")
             command = ("./executeInHadoopEnv.sh %s " % ENVIRONMENT_FILE) + command
             print (command)
-        sudo(command,user ='hadoop')
+            run(command)
+#        sudo(command,user ='hadoop')
 
 
 def operationOnHadoopDaemons(operation):
