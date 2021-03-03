@@ -12,6 +12,7 @@ import os
 from fabric.api import run, cd, env, settings, put, sudo
 from fabric.decorators import runs_once, parallel
 from fabric.tasks import execute
+import json
 
 ###############################################################
 #  START OF YOUR CONFIGURATION (CHANGE FROM HERE, IF NEEDED)  #
@@ -40,6 +41,17 @@ AWS_ACCESSKEY_SECRET = os.getenv("AWS_ACCESSKEY_SECRET", "undefined")
 EC2_INSTANCE_STORAGEDEV = None
 #EC2_INSTANCE_STORAGEDEV = "/dev/xvdb" For Ubuntu r3.xlarge instances
 
+#zookeeper rellated files
+ZOOKEEPER_DATA_DIR = "/HA/data/zookeeper"
+IMPORTANT_ZK_DIRS = [ZOOKEEPER_DATA_DIR]
+
+#### Zookeper Package Information ####
+ZOOKEEPER_VERSION = "3.4.6"
+ZOOKEEPER_PACKAGE = "zookeeper-%s" % ZOOKEEPER_VERSION
+#HADOOP_PACKAGE_URL = "http://apache.mirrors.spacedump.net/hadoop/common/stable/%s.tar.gz" % HADOOP_PACKAGE
+ZOOKEEPER_PACKAGE_URL = "https://archive.apache.org/dist/zookeeper/%(hadoop)s/%(hadoop)s.tar.gz" % {'hadoop': ZOOKEEPER_PACKAGE}
+ZOOKEEPER_PREFIX = "/home/ubuntu/Programs/%s" % ZOOKEEPER_PACKAGE
+ZOOKEEPER_CONF = os.path.join(ZOOKEEPER_PREFIX, "conf")
 
 #### Package Information ####
 HADOOP_VERSION = "2.8.5"
@@ -61,13 +73,13 @@ PACKAGE_MANAGER_INSTALL = "apt-get -qq install %s" # Debian/Ubuntu
 # In principle, should just be a JRE for Hadoop, Python
 # for the Hadoop Configuration replacement script and wget
 # to get the Hadoop package
-REQUIREMENTS = ["wget", "python", "openjdk-8-jdk"] # Debian/Ubuntu
+REQUIREMENTS = ["wget", "python", "openjdk-8-jdk","ntp"] # Debian/Ubuntu
 #REQUIREMENTS = ["wget", "python", "jre7-openjdk-headless"] # Arch Linux
 #REQUIREMENTS = ["wget", "python", "java-1.7.0-openjdk-devel"] # CentOS
 
 # Commands to execute (in order) before installing listed requirements
 # (will run as root). Use to configure extra repos or update repos
-REQUIREMENTS_PRE_COMMANDS = []
+REQUIREMENTS_PRE_COMMANDS = ["service iptables stop","service ufw stop"]
 
 # If you want to install Oracle's Java instead of using the OpenJDK that
 # comes preinstalled with most distributions replace the previous options
@@ -108,7 +120,9 @@ ENVIRONMENT_VARIABLES = [
     ("HADOOP_YARN_HOME", r"\\$HADOOP_PREFIX"),
     ("HADOOP_PID_DIR", "/tmp/hadoop_%s" % HADOOP_VERSION),
     ("YARN_PID_DIR", r"\\$HADOOP_PID_DIR"),
-    ("PATH", r"\\$HADOOP_PREFIX/bin:\\$PATH"),
+    ("ZOOKEEPER_HOME", ZOOKEEPER_PREFIX),
+    ("PATH", r"\\$ZOOKEEPER_HOME/bin:\\$HADOOP_PREFIX/bin:\\$PATH")
+
 ]
 
 
@@ -146,10 +160,26 @@ HDFS_NAME_DIR = "/HA/data/namenode"
 
 IMPORTANT_DIRS = [HADOOP_TEMP, HDFS_DATA_DIR, HDFS_NAME_DIR]
 
+
+
+
+
 # Need to do this in a function so that we can rewrite the values when any
 # of the hosts change in runtime (e.g. EC2 node discovery).
 def updateHadoopSiteValues():
-    global CORE_SITE_VALUES, HDFS_SITE_VALUES, YARN_SITE_VALUES, MAPRED_SITE_VALUES
+    global CORE_SITE_VALUES, HDFS_SITE_VALUES, YARN_SITE_VALUES, MAPRED_SITE_VALUES,ZOOKEEPER_CONF_VALUES
+
+
+    ZOOKEEPER_CONF_VALUES = {
+        "tickTime": 2000,
+        "initLimit": 10,
+        "syncLimit": 5,
+        "dataDir": ZOOKEEPER_DATA_DIR,
+        "clientPort": 2181,
+        "server.1": "%s :2888:3888" % NAMENODE_HOST,
+        "server.2": "%s :2888:3888" % SLAVE_HOSTS[0],
+        "server.3": "%s :2888:3888" % SLAVE_HOSTS[1]
+    }
 
     CORE_SITE_VALUES = {
         "fs.defaultFS": "hdfs://%s/" % NAMENODE_HOST,
@@ -242,7 +272,22 @@ def debugHosts():
     print("Slaves: {}".format(SLAVE_HOSTS))
 
 
+def bootstrapZK():
+    ensureImportantZKDirectoriesExist()
+#    installDependencies()
+    install_ZK()
+#    setupEnvironment()
+    config_ZK()
+#    setupHosts()
+    startZKserver()
+
 def bootstrap():
+    installDependencies()
+    setupEnvironment()
+    setupHosts()
+    bootstrapHadoopYarn()
+
+def bootstrapHadoopYarn():
     with settings(warn_only=True):
         if EC2_INSTANCE_STORAGEDEV and run("mountpoint /mnt").failed:
             sudo("mkfs.ext4 %s" % EC2_INSTANCE_STORAGEDEV)
@@ -250,11 +295,11 @@ def bootstrap():
             sudo("chmod 0777 /mnt")
             sudo("rm -rf /tmp/hadoop-ubuntu")
     ensureImportantDirectoriesExist()
-    installDependencies()
+    #installDependencies()
     install()
-    setupEnvironment()
+    #setupEnvironment()
     config()
-    setupHosts()
+    #setupHosts()
     formatHdfs()
 
 
@@ -262,12 +307,17 @@ def ensureImportantDirectoriesExist():
     for importantDir in IMPORTANT_DIRS:
         ensureDirectoryExists(importantDir)
 
+def ensureImportantZKDirectoriesExist():
+    for importantDir in IMPORTANT_ZK_DIRS:
+        ensureDirectoryExists(importantDir)
+
 
 def installDependencies():
-    for command in REQUIREMENTS_PRE_COMMANDS:
-        sudo(command)
-    for requirement in REQUIREMENTS:
-        sudo(PACKAGE_MANAGER_INSTALL % requirement)
+    with settings(warn_only=True):
+        for command in REQUIREMENTS_PRE_COMMANDS:
+            sudo(command)
+        for requirement in REQUIREMENTS:
+            sudo(PACKAGE_MANAGER_INSTALL % requirement)
 
 
 def install():
@@ -279,6 +329,24 @@ def install():
                 run("wget -O %s.tar.gz %s" % (HADOOP_PACKAGE, HADOOP_PACKAGE_URL))
         run("tar --overwrite -xf %s.tar.gz" % HADOOP_PACKAGE)
 
+def install_ZK():
+    installDirectory = os.path.dirname(ZOOKEEPER_PREFIX)
+    run("mkdir -p %s" % installDirectory)
+    with cd(installDirectory):
+        with settings(warn_only=True):
+            if run("test -f %s.tar.gz" % ZOOKEEPER_PACKAGE).failed:
+                run("wget -O %s.tar.gz %s" % (ZOOKEEPER_PACKAGE, ZOOKEEPER_PACKAGE_URL))
+        run("tar --overwrite -xf %s.tar.gz" % ZOOKEEPER_PACKAGE)
+
+def config_ZK():
+    changeZKProperties("zoo.cfg", ZOOKEEPER_CONF_VALUES)
+    with cd(ZOOKEEPER_DATA_DIR):
+        if (env.host == NAMENODE_HOST):
+            run("echo 1 >> myid")
+        if env.host == SLAVE_HOSTS[0]: ## TODO: Remove hardcoding
+            run("echo 2 >> myid")
+        if env.host == SLAVE_HOSTS[1]: ## TODO: Remove hardcoding
+            run("echo 3 >> myid")
 
 def config():
     changeHadoopProperties("core-site.xml", CORE_SITE_VALUES)
@@ -323,6 +391,11 @@ def setupEnvironment():
 def environmentRevertPrevious():
     revertBackup(ENVIRONMENT_FILE)
 
+def startZKserver():
+    operationInZKEnvironment(r"/home/ubuntu/Programs/zookeeper-3.4.6/bin/zkServer.sh start")
+
+def stopZKserver():
+    operationInZKEnvironment(r"/home/ubuntu/Programs/zookeeper-3.4.6/bin/zkServer.sh stop")
 
 def formatHdfs():
     if env.host == NAMENODE_HOST:
@@ -414,6 +487,37 @@ def getLastBackupNumber(filePath):
             latestBakNumber = int(latestBak[len(fileName) + 4:])
         return latestBakNumber
 
+def changeZKProperties(fileName, propertyDict):
+    if not fileName or not propertyDict:
+        return
+
+    with cd(ZOOKEEPER_CONF):
+        with settings(warn_only=True):
+            import hashlib
+            makeZKconfigHash = \
+                hashlib.md5(
+                    open("makeZKconfig.py", 'rb').read()
+                ).hexdigest()
+            if run("test %s = `md5sum makeZKconfig.py | cut -d ' ' -f 1`"
+                   % makeZKconfigHash).failed:
+                put("makeZKconfig.py", ZOOKEEPER_CONF + "/")
+                run("chmod +x makeZKconfig.py")
+
+        with settings(warn_only=True):
+            if not run("test -f %s" % fileName).failed:
+                op = "cp"
+
+                if CONFIGURATION_FILES_CLEAN:
+                    op = "mv"
+
+                currentBakNumber = getLastBackupNumber(fileName) + 1
+                run("%(op)s %(file)s %(file)s.bak%(bakNumber)d" %
+                    {"op": op, "file": fileName, "bakNumber": currentBakNumber})
+
+        run("touch %s" % fileName)
+
+        command = "./makeZKconfig.py '%s' '%s' " % (fileName, json.dumps(propertyDict))
+        run(command)
 
 def changeHadoopProperties(fileName, propertyDict):
     if not fileName or not propertyDict:
@@ -467,6 +571,23 @@ def revertBackup(fileName):
 def revertHadoopPropertiesChange(fileName):
     revertBackup(os.path.join(HADOOP_CONF, fileName))
 
+def operationInZKEnvironment(operation):
+    with cd(ZOOKEEPER_PREFIX):
+        command = operation
+        if ENVIRONMENT_FILE_NOTAUTOLOADED:
+            with settings(warn_only=True):
+                import hashlib
+                executeInZookeeperEnvHash = \
+                    hashlib.md5(
+                        open("executeInZookeeperEnv.sh", 'rb').read()
+                    ).hexdigest()
+                if run("test %s = `md5sum executeInZookeeperEnv.sh | cut -d ' ' -f 1`"
+                    % executeInZookeeperEnvHash).failed:
+                    put("executeInZookeeperEnv.sh", ZOOKEEPER_PREFIX + "/")
+                    run("chmod +x executeInZookeeperEnv.sh")
+            command = ("./executeInZookeeperEnv.sh %s " % ENVIRONMENT_FILE) + command
+            print (command)
+            run(command)
 
 def operationInHadoopEnvironment(operation):
     with cd(HADOOP_PREFIX):
