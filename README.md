@@ -1,4 +1,4 @@
-# AlexJF's Fabric Scripts
+# Fabirc scripts!
 
 These scripts are meant to be run with [Fabric](fabfile.org), a Python tool 
 for SSH application deployment.
