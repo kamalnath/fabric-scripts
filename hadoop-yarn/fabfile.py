@@ -390,13 +390,13 @@ def formatZK_SNN():
     if env.host == SLAVE_HOSTS[0]:
         operationInHadoopEnvironment(r"/home/ubuntu/Programs/hadoop-2.8.5/bin/hdfs zkfc -formatZK")
 
-def start_Zkfc_NN():
+def operation_Zkfc_NN(operation):
     if env.host == NAMENODE_HOST:
-        operationInHadoopEnvironment(r"/home/ubuntu/Programs/hadoop-2.8.5/sbin/hadoop-daemon.sh start zkfc")
+        operationInHadoopEnvironment(r"/home/ubuntu/Programs/hadoop-2.8.5/sbin/hadoop-daemon.sh %s zkfc"%operation)
 
-def start_Zkfc_SNN():
+def operation_Zkfc_SNN(operation):
     if env.host == SLAVE_HOSTS[0]:
-        operationInHadoopEnvironment(r"/home/ubuntu/Programs/hadoop-2.8.5/sbin/hadoop-daemon.sh start zkfc")
+        operationInHadoopEnvironment(r"/home/ubuntu/Programs/hadoop-2.8.5/sbin/hadoop-daemon.sh %s zkfc"%operation)
 
 def bootstrapStandby():
     if env.host == SLAVE_HOSTS[0]:
@@ -438,15 +438,15 @@ def namenode_secondarynamenode_OPS():
             operationInHadoopEnvironment(r"/home/ubuntu/Programs/hadoop-2.8.5/sbin/hadoop-daemon.sh start datanode")
 
         formatZK_NN()
-        start_Zkfc_NN()
+        operation_Zkfc_NN('start')
         formatZK_SNN()
-        start_Zkfc_SNN()
+        operation_Zkfc_SNN('start')
 
         # Start/Stop NodeManager on all container hosts
         if env.host in SLAVE_HOSTS:
             operationInHadoopEnvironment(r"/home/ubuntu/Programs/hadoop-2.8.5/sbin/yarn-daemon.sh start nodemanager" )
         # Start/Stop ResourceManager
-        if (env.host == RESOURCEMANAGER_HOST or env.host == NAMENODE_HOST):
+        if (env.host == SLAVE_HOSTS[0] or env.host == NAMENODE_HOST):
             operationInHadoopEnvironment(r"/home/ubuntu/Programs/hadoop-2.8.5/sbin/yarn-daemon.sh start resourcemanager")
         if (env.host == JOBHISTORY_HOST):
             operationInHadoopEnvironment(r"/home/ubuntu/Programs/hadoop-2.8.5/sbin/mr-jobhistory-daemon.sh start historyserver" )
@@ -474,13 +474,25 @@ def operationOnHadoopDaemons(operation):
     # Start/Stop JobHistory daemon
     if (env.host == JOBHISTORY_HOST):
         operationInHadoopEnvironment(r"/home/ubuntu/Programs/hadoop-2.8.5/sbin/mr-jobhistory-daemon.sh %s historyserver" % operation)
+
+    operation_Zkfc_NN('stop')
+    operation_Zkfc_SNN('stop')
     run("jps")
+
+def resetAll():
+    with settings(warn_only=True):
+        sudo("rm -rf /HA/data")
+        sudo("rm -rf  /home/ubuntu/Programs/hadoop-2.8.5/logs/*")
+        sudo("rm -rf  /home/ubuntu/Programs/hadoop-2.8.5/etc/hadoop/*.bak*")
 
 def start():
     operationOnHadoopDaemons("start")
 def stop():
     operationOnHadoopDaemons("stop")
     stopZKserver()
+    if env.host == SLAVE_HOSTS[0]:
+        operationInHadoopEnvironment(r"/home/ubuntu/Programs/hadoop-2.8.5/sbin/hadoop-daemon.sh stop namenode")
+
 
 def test():
     if env.host == RESOURCEMANAGER_HOST:
