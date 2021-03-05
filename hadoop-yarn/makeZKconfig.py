@@ -13,4 +13,4 @@ print(strPropertyDict)
 with open(fileName, "w") as f:
     propertyDict =json.loads(strPropertyDict)
     for pKey, pValue in propertyDict.items():
-        f.write("%s = %s \n"%(pKey,pValue))
+        f.write("%s=%s\n"%(pKey,pValue))
